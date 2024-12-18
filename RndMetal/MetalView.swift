@@ -23,6 +23,8 @@ class MetalSineWaveView: UIView {
     private var animationBuffer: MTLBuffer
     private var sourceTexture: MTLTexture?
     private var vertexInfo: [VertexInfo] = []
+    var outputTexture: MTLTexture?
+    var imgView: UIImageView
     
     // Animation properties
     private var displayLink: CADisplayLink?
@@ -34,7 +36,7 @@ class MetalSineWaveView: UIView {
     // Metalayer for rendering
     private var metalLayer: CAMetalLayer!
     
-    init?(frame: CGRect, image: UIImage) {
+    init?(frame: CGRect, image: UIImage, imageView: UIImageView) {
         // Create Metal device
         guard let device = MTLCreateSystemDefaultDevice() else {
             print("Cannot create Metal device")
@@ -51,12 +53,13 @@ class MetalSineWaveView: UIView {
         }
         self.commandQueue = commandQueue
         
+
         // x, y, u, v
         vertexInfo = [
-            VertexInfo(position: SIMD2(-0.2, -0.2), textureCoordinate: SIMD2(0.0, 1.0)),
-            VertexInfo(position: SIMD2(0.2, -0.2), textureCoordinate: SIMD2(1.0, 1.0)),
-            VertexInfo(position: SIMD2(-0.2, 0.2), textureCoordinate: SIMD2(0.0, 0.0)),
-            VertexInfo(position: SIMD2(0.2, 0.2), textureCoordinate: SIMD2(1.0, 0.0))
+            VertexInfo(position: SIMD2(-1.0, -1.0), textureCoordinate: SIMD2(0.0, 1.0)),
+            VertexInfo(position: SIMD2(1.0, -1.0), textureCoordinate: SIMD2(1.0, 1.0)),
+            VertexInfo(position: SIMD2(-1.0, 1.0), textureCoordinate: SIMD2(0.0, 0.0)),
+            VertexInfo(position: SIMD2(1.0, 1.0), textureCoordinate: SIMD2(1.0, 0.0))
         ]
         
         // Create vertex buffer
@@ -80,6 +83,7 @@ class MetalSineWaveView: UIView {
         self.animationBuffer = animationBuffer
 
         // Call super after all initializations
+        imgView = imageView
         super.init(frame: frame)
         self.backgroundColor = .cyan
 
@@ -89,6 +93,7 @@ class MetalSineWaveView: UIView {
         
         // Load image texture
         loadTexture()
+        createOutputTexture()
         // Setup animation
         setupDisplayLink()
     }
@@ -180,40 +185,74 @@ class MetalSineWaveView: UIView {
     }
     
     private func render() {
-        guard let drawable = metalLayer.nextDrawable(),
-              let commandBuffer = commandQueue.makeCommandBuffer(),
-              
-              let sourceTexture = sourceTexture else {
+
+        guard let drawable = metalLayer.nextDrawable() else {
+            print("Failed to get next drawable from metalLayer")
             return
         }
-        let renderPassDescriptor = createRenderPassDescriptor(drawable: drawable)
-              
-        guard let renderEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor) else {
+
+        guard let commandBuffer = commandQueue.makeCommandBuffer() else {
+            print("Failed to create command buffer")
             return
         }
-        
-        // Set render pipeline state
-        renderEncoder.setRenderPipelineState(pipelineState)
-        
-        // Set vertex buffer
-        renderEncoder.setVertexBuffer(vertexBuffer, offset: 0, index: 0)
-        
-        // Set time buffer
-        renderEncoder.setVertexBuffer(animationBuffer, offset: 0, index: 1)
-        
-        // Set texture
-        renderEncoder.setFragmentTexture(sourceTexture, index: 0)
-        
-        // Draw
-        renderEncoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
-        
-        // End encoding
-        renderEncoder.endEncoding()
-        
-        // Commit and present
-        commandBuffer.present(drawable)
-        commandBuffer.commit()
-    }
+
+        guard let sourceTexture = sourceTexture else {
+            print("Source texture is nil")
+            return
+        }
+
+        guard let outputTexture = outputTexture else {
+            print("Output texture is nil")
+            return
+        }
+
+
+           // Create render pass descriptor targeting our output texture instead of the drawable
+           let renderPassDescriptor = MTLRenderPassDescriptor()
+           renderPassDescriptor.colorAttachments[0].texture = outputTexture
+           renderPassDescriptor.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+           renderPassDescriptor.colorAttachments[0].loadAction = .clear
+           renderPassDescriptor.colorAttachments[0].storeAction = .store
+           
+           guard let renderEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor) else {
+               return
+           }
+           
+           // Your existing render code here
+           renderEncoder.setRenderPipelineState(pipelineState)
+           renderEncoder.setVertexBuffer(vertexBuffer, offset: 0, index: 0)
+           renderEncoder.setVertexBuffer(animationBuffer, offset: 0, index: 1)
+           renderEncoder.setFragmentTexture(sourceTexture, index: 0)
+           renderEncoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
+           renderEncoder.endEncoding()
+           
+           // Add a blit encoder to copy the result to the drawable
+           if let blitEncoder = commandBuffer.makeBlitCommandEncoder() {
+               let region = MTLRegionMake2D(0, 0, outputTexture.width, outputTexture.height)
+               blitEncoder.copy(
+                   from: outputTexture,
+                   sourceSlice: 0,
+                   sourceLevel: 0,
+                   sourceOrigin: MTLOriginMake(0, 0, 0),
+                   sourceSize: MTLSizeMake(outputTexture.width, outputTexture.height, 1),
+                   to: drawable.texture,
+                   destinationSlice: 0,
+                   destinationLevel: 0,
+                   destinationOrigin: MTLOriginMake(0, 0, 0)
+               )
+               blitEncoder.endEncoding()
+           }
+           
+           // Add completion handler to know when drawing is done
+           commandBuffer.addCompletedHandler { [weak self] _ in
+               // The outputTexture now contains the final rendered image
+               // You can use it here for any post-processing or saving
+               self?.handleTextureCompletion()
+           }
+           
+           commandBuffer.present(drawable)
+           commandBuffer.commit()
+       }
     
     private func createRenderPassDescriptor(drawable: CAMetalDrawable) -> MTLRenderPassDescriptor {
         let renderPassDescriptor = MTLRenderPassDescriptor()
@@ -222,5 +261,60 @@ class MetalSineWaveView: UIView {
         renderPassDescriptor.colorAttachments[0].loadAction = .clear
         renderPassDescriptor.colorAttachments[0].storeAction = .store
         return renderPassDescriptor
+    }
+    
+    private func handleTextureCompletion() {
+        // Here you can use the outputTexture for whatever you need
+        // For example, you could save it to an image:
+        guard let outputTexture = outputTexture else { return }
+        
+        // Example: Create CIImage from texture
+//        let ciImage = CIImage(mtlTexture: outputTexture, options: [:])
+        DispatchQueue.main.async {
+            self.imgView.image =  self.textureToUIImage(texture: outputTexture)
+        }
+        // You can now use this texture/image for further processing
+    }
+    
+    private func createOutputTexture() {
+        let textureDescriptor = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .bgra8Unorm,
+            width: Int(bounds.width),
+            height: Int(bounds.height),
+            mipmapped: false
+        )
+        textureDescriptor.usage = [.renderTarget, .shaderRead] // Allow both rendering to and reading from texture
+        outputTexture = device.makeTexture(descriptor: textureDescriptor)
+    }
+    
+    func textureToUIImage(texture: MTLTexture) -> UIImage? {
+        // Define the size of the texture
+        let width = texture.width
+        let height = texture.height
+
+        // Create a raw buffer to hold the texture data
+        let byteCount = width * height * 4 // RGBA format (4 bytes per pixel)
+        var pixelData = [UInt8](repeating: 0, count: byteCount)
+        let region = MTLRegionMake2D(0, 0, width, height)
+
+        // Copy texture data into the buffer
+        texture.getBytes(&pixelData,
+                         bytesPerRow: width * 4,
+                         from: region,
+                         mipmapLevel: 0)
+
+        // Create a CGImage from the raw buffer
+        let bitmapContext = CGContext(data: &pixelData,
+                                      width: width,
+                                      height: height,
+                                      bitsPerComponent: 8,
+                                      bytesPerRow: width * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+
+        guard let cgImage = bitmapContext?.makeImage() else { return nil }
+
+        // Convert the CGImage to a UIImage
+        return UIImage(cgImage: cgImage)
     }
 }

@@ -14,6 +14,7 @@ struct Uniforms {
 
 class ViewController: UIViewController {
     private var metalView: MetalSineWaveView?
+    var imageView: UIImageView!
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -24,10 +25,15 @@ class ViewController: UIViewController {
             return
         }
         view.backgroundColor = .cyan
+        
+        imageView = UIImageView(frame: CGRect(x: 20, y: 100, width: 300, height: 300))
+        imageView.contentMode = .scaleAspectFit
         // Create Metal view
-        if let metalView = MetalSineWaveView(frame: view.bounds, image: image) {
+        if let metalView = MetalSineWaveView(frame: view.bounds, image: image, imageView: imageView) {
             self.metalView = metalView
             view.addSubview(metalView)
         }
+        view.addSubview(imageView)
+        imageView.backgroundColor = .red
     }
 }
