@@ -53,10 +53,10 @@ class MetalSineWaveView: UIView {
         
         // x, y, u, v
         vertexInfo = [
-            VertexInfo(position: SIMD2(-0.2, -0.2), textureCoordinate: SIMD2(0.0, 1.0)),
-            VertexInfo(position: SIMD2(0.2, -0.2), textureCoordinate: SIMD2(1.0, 1.0)),
-            VertexInfo(position: SIMD2(-0.2, 0.2), textureCoordinate: SIMD2(0.0, 0.0)),
-            VertexInfo(position: SIMD2(0.2, 0.2), textureCoordinate: SIMD2(1.0, 0.0))
+            VertexInfo(position: SIMD2(-1.0, -1.0), textureCoordinate: SIMD2(0.0, 1.0)),
+            VertexInfo(position: SIMD2(1.0, -1.0), textureCoordinate: SIMD2(1.0, 1.0)),
+            VertexInfo(position: SIMD2(-1.0, 1.0), textureCoordinate: SIMD2(0.0, 0.0)),
+            VertexInfo(position: SIMD2(1.0, 1.0), textureCoordinate: SIMD2(1.0, 0.0))
         ]
         
         // Create vertex buffer
